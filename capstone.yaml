@@ -1,0 +1,31 @@
+title: "Usage Metering & Billing Engine"
+language: "Python"
+framework: "FastAPI"
+
+storage:
+  database: "SQLite"
+  migrations: true
+
+billing:
+  provider: "Stripe"
+  mode: "test"
+  plans:
+    - Free
+    - Pro
+
+usage_types:
+  - api_call
+  - ai_token
+
+features:
+  idempotent_metering: true
+  monthly_quotas: true
+  token_cost_tracking: true
+  stripe_checkout: true
+  verified_webhooks: true
+  webhook_deduplication: true
+  background_reconciliation: true
+
+entrypoint: "main:app"
+seed_command: "python seed.py"
+background_job_command: "python background_jobs.py"
