@@ -15,8 +15,13 @@ app = FastAPI(title="Usage Metering & Billing Engine")
 class GenerateRequest(BaseModel):
     tenant_id: int = Field(gt=0)
     usage_type: str
-    quantity: int = Field(gt=0)
+    quantity: int = Field(default=1, gt=0)
     idempotency_key: str = Field(min_length=1)
+
+    input_tokens: int = Field(default=0, ge=0)
+    cached_input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    reasoning_tokens: int = Field(default=0, ge=0)
 
 
 @app.get("/health")
@@ -27,11 +32,15 @@ def health():
 @app.post("/generate")
 def generate(request: GenerateRequest):
     result = record_usage(
-        tenant_id=request.tenant_id,
-        usage_type=request.usage_type,
-        quantity=request.quantity,
-        idempotency_key=request.idempotency_key,
-    )
+    tenant_id=request.tenant_id,
+    usage_type=request.usage_type,
+    quantity=request.quantity,
+    idempotency_key=request.idempotency_key,
+    input_tokens=request.input_tokens,
+    cached_input_tokens=request.cached_input_tokens,
+    output_tokens=request.output_tokens,
+    reasoning_tokens=request.reasoning_tokens,
+)
 
     if "error" in result:
         raise HTTPException(
@@ -91,8 +100,7 @@ async def stripe_webhook(request: Request):
         result = process_stripe_event(event)
         return result
 
-    except Exception as error:
-        print("WEBHOOK ERROR:", repr(error))
+    except Exception:
         raise HTTPException(
             status_code=500,
             detail="Webhook processing failed",

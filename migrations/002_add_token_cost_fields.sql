@@ -1,0 +1,14 @@
+ALTER TABLE usage_events
+ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE usage_events
+ADD COLUMN cached_input_tokens INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE usage_events
+ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE usage_events
+ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE usage_events
+ADD COLUMN cost_microdollars INTEGER NOT NULL DEFAULT 0;

@@ -1,6 +1,7 @@
 import sqlite3
 
 from database import get_connection
+from pricing import calculate_token_cost
 
 
 def record_usage(
@@ -8,18 +9,19 @@ def record_usage(
     usage_type: str,
     quantity: int,
     idempotency_key: str,
+    input_tokens: int = 0,
+    cached_input_tokens: int = 0,
+    output_tokens: int = 0,
+    reasoning_tokens: int = 0,
 ):
     connection = get_connection()
 
     try:
-        # Lock writes while we check idempotency, quota, and record usage.
         connection.execute("BEGIN IMMEDIATE")
 
-        # 1. A retry must return the original event without charging again.
         existing_event = connection.execute(
             """
-            SELECT id, tenant_id, usage_type, quantity,
-                   idempotency_key, created_at
+            SELECT *
             FROM usage_events
             WHERE tenant_id = ? AND idempotency_key = ?
             """,
@@ -33,7 +35,6 @@ def record_usage(
                 "duplicate": True,
             }
 
-        # 2. Find the tenant's active subscription and plan limits.
         subscription = connection.execute(
             """
             SELECT
@@ -57,8 +58,24 @@ def record_usage(
 
         if usage_type == "api_call":
             limit = subscription["api_call_limit"]
+
         elif usage_type == "ai_token":
             limit = subscription["ai_token_limit"]
+
+            quantity = (
+                input_tokens
+                + cached_input_tokens
+                + output_tokens
+                + reasoning_tokens
+            )
+
+            if quantity <= 0:
+                connection.rollback()
+                return {
+                    "error": "AI token usage must be greater than zero",
+                    "status_code": 400,
+                }
+
         else:
             connection.rollback()
             return {
@@ -66,7 +83,6 @@ def record_usage(
                 "status_code": 400,
             }
 
-        # 3. Calculate this month's existing usage.
         current_usage = connection.execute(
             """
             SELECT COALESCE(SUM(quantity), 0) AS total
@@ -79,7 +95,6 @@ def record_usage(
             (tenant_id, usage_type),
         ).fetchone()["total"]
 
-        # Exact quota is allowed; only usage above it is rejected.
         if current_usage + quantity > limit:
             connection.rollback()
             return {
@@ -90,20 +105,48 @@ def record_usage(
                 "limit": limit,
             }
 
-        # 4. Record the billable usage exactly once.
+        cost_microdollars = 0
+
+        if usage_type == "ai_token":
+            cost = calculate_token_cost(
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
+                reasoning_tokens=reasoning_tokens,
+            )
+            cost_microdollars = cost["total_cost"]
+
         cursor = connection.execute(
             """
-            INSERT INTO usage_events
-                (tenant_id, usage_type, quantity, idempotency_key)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO usage_events (
+                tenant_id,
+                usage_type,
+                quantity,
+                idempotency_key,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                cost_microdollars
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (tenant_id, usage_type, quantity, idempotency_key),
+            (
+                tenant_id,
+                usage_type,
+                quantity,
+                idempotency_key,
+                input_tokens,
+                cached_input_tokens,
+                output_tokens,
+                reasoning_tokens,
+                cost_microdollars,
+            ),
         )
 
         event = connection.execute(
             """
-            SELECT id, tenant_id, usage_type, quantity,
-                   idempotency_key, created_at
+            SELECT *
             FROM usage_events
             WHERE id = ?
             """,
