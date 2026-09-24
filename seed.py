@@ -42,8 +42,16 @@ def seed_database():
             FOREIGN KEY (tenant_id) REFERENCES tenants(id),
             UNIQUE (tenant_id, idempotency_key)
         );
+
+        CREATE TABLE IF NOT EXISTS stripe_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stripe_event_id TEXT NOT NULL UNIQUE,
+            event_type TEXT NOT NULL,
+            processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
     """)
 
+    cursor.execute("DELETE FROM stripe_events")
     cursor.execute("DELETE FROM usage_events")
     cursor.execute("DELETE FROM subscriptions")
     cursor.execute("DELETE FROM tenants")

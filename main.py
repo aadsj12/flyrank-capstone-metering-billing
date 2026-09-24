@@ -1,8 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from metering import record_usage
 from usage import get_usage_summary
+from stripe_service import create_checkout_session
+import stripe
+
+from stripe_webhook import construct_stripe_event, process_stripe_event
+
 
 app = FastAPI(title="Usage Metering & Billing Engine")
 
@@ -51,3 +56,44 @@ def usage(tenant_id: int):
         )
 
     return summary
+
+@app.post("/checkout")
+def checkout(tenant_id: int):
+    try:
+        return create_checkout_session(tenant_id)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature")
+
+    if not signature:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing Stripe signature",
+        )
+
+    try:
+        event = construct_stripe_event(payload, signature)
+
+    except (ValueError, stripe.error.SignatureVerificationError):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Stripe webhook signature",
+        )
+
+    try:
+        result = process_stripe_event(event)
+        return result
+
+    except Exception as error:
+        print("WEBHOOK ERROR:", repr(error))
+        raise HTTPException(
+            status_code=500,
+            detail="Webhook processing failed",
+        )
